@@ -1,0 +1,105 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String    @id @default(cuid())
+  email     String    @unique
+  name      String?
+  image     String?
+  role      Role      @default(INTERVIEWER)
+  sessions  Session[]
+  accounts  Account[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider          String
+  providerAccountId String
+  access_token      String? @db.Text
+  refresh_token     String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id          String         @id @default(cuid())
+  title       String
+  userId      String
+  user        User           @relation(fields: [userId], references: [id])
+  status      SessionStatus  @default(WAITING)
+  language    String         @default("javascript")
+  problemId   String?
+  problem     Problem?       @relation(fields: [problemId], references: [id])
+  events      SessionEvent[]
+  code                String         @default("") @db.Text
+  notes               String?
+  allowAutocomplete   Boolean        @default(true)
+  allowLanguageChange Boolean        @default(true)
+  startedAt           DateTime?
+  endedAt             DateTime?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+}
+
+model SessionEvent {
+  id        String    @id @default(cuid())
+  sessionId String
+  session   Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  type      EventType
+  payload   Json
+  offsetMs  Int
+  createdAt DateTime  @default(now())
+
+  @@index([sessionId, offsetMs])
+}
+
+model Problem {
+  id          String     @id @default(cuid())
+  title       String
+  description String
+  starterCode Json
+  testCases   Json
+  difficulty  Difficulty
+  tags        String[]
+  sessions    Session[]
+  createdAt   DateTime   @default(now())
+}
+
+enum Role {
+  INTERVIEWER
+  CANDIDATE
+}
+
+enum SessionStatus {
+  WAITING
+  ACTIVE
+  ENDED
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum EventType {
+  KEYSTROKE
+  CODE_RUN
+  STATUS_CHANGE
+  COMMENT
+  CURSOR
+  LANGUAGE_CHANGE
+}

@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+/*
+ * forge-ui owns --background/--foreground (HSL triplets) and body styling
+ * via its globals.scss, imported in app/layout.tsx. Tailwind's color/font
+ * tokens below point at forge-ui's variables instead of redefining them,
+ * so there's a single source of truth instead of two clashing formats.
+ */
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-border: hsl(var(--border));
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* y-monaco renders remote cursor/selection decorations via these classes
+   but ships no styles of its own — see node_modules/y-monaco/src/y-monaco.js */
+.yRemoteSelection {
+  background-color: rgba(250, 129, 0, 0.3);
+}
+.yRemoteSelectionHead {
+  position: absolute;
+  border-left: 2px solid orange;
+}

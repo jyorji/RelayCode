@@ -1,0 +1,71 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: relay_postgres
+    environment:
+      POSTGRES_USER: relay
+      POSTGRES_PASSWORD: relay
+      POSTGRES_DB: relay_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U relay -d relay_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: relay_rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: relay
+      RABBITMQ_DEFAULT_PASS: relay
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  judge0:
+    image: judge0/judge0:1.13.1
+    container_name: relay_judge0
+    ports:
+      - "2358:2358"
+    privileged: true
+    environment:
+      REDIS_HOST: judge0_redis
+      POSTGRES_HOST: judge0_postgres
+      POSTGRES_DB: judge0
+      POSTGRES_USER: judge0
+      POSTGRES_PASSWORD: judge0
+    volumes:
+      - ./infra/judge0/isolate_job.rb:/api/app/jobs/isolate_job.rb:ro
+    depends_on:
+      - judge0_postgres
+      - judge0_redis
+
+  judge0_postgres:
+    image: postgres:13-alpine
+    container_name: relay_judge0_postgres
+    environment:
+      POSTGRES_DB: judge0
+      POSTGRES_USER: judge0
+      POSTGRES_PASSWORD: judge0
+    volumes:
+      - judge0_postgres_data:/var/lib/postgresql/data
+
+  judge0_redis:
+    image: redis:7-alpine
+    container_name: relay_judge0_redis
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+  judge0_postgres_data:
