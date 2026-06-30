@@ -72,11 +72,50 @@ npm install
 
 ### 2. Start infrastructure services
 
+All three services can be started together or individually.
+
+**Start everything at once**
 ```bash
 docker compose up -d
 ```
 
-This starts PostgreSQL (port 5432), RabbitMQ (ports 5672 / 15672), and Judge0 with its own PostgreSQL and Redis.
+**Start services individually**
+```bash
+# PostgreSQL only (port 5432)
+docker compose up -d postgres
+
+# RabbitMQ only (ports 5672 + 15672 for management UI)
+docker compose up -d rabbitmq
+
+# Judge0 only — also starts its own postgres and redis automatically
+docker compose up -d judge0
+```
+
+**Other useful Docker commands**
+```bash
+# Check which containers are running and healthy
+docker compose ps
+
+# Stream logs for a specific service
+docker compose logs -f postgres
+docker compose logs -f rabbitmq
+docker compose logs -f judge0
+
+# Stop all services (keeps volume data)
+docker compose down
+
+# Stop all services and wipe all data
+docker compose down -v
+```
+
+Ports at a glance:
+
+| Service | Port |
+|---|---|
+| PostgreSQL (app DB) | 5432 |
+| RabbitMQ AMQP | 5672 |
+| RabbitMQ Management UI | 15672 |
+| Judge0 API | 2358 |
 
 ### 3. Configure environment variables
 
