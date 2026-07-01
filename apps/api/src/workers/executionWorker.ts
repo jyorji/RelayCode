@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "../lib/db";
 import { consumeQueue, EXECUTION_QUEUE } from "../lib/queue";
 import { runCode } from "../lib/judge0";
+import { wrapWithDriver } from "../lib/codeDriver";
 import { sessionOffsetMs, sessionRoomName } from "../lib/sessionUtils";
 
 interface RunRequest {
@@ -18,7 +19,9 @@ export function startExecutionWorker(io: Server) {
   consumeQueue(EXECUTION_QUEUE, async (payload) => {
     const { requestId, sessionId, code, language, stdin, userId } = payload as RunRequest;
 
-    const result = await runCode({ code, language, stdin }).catch((err) => ({
+    // Java/C/C++ always need a driver (Judge0 requires an entry point); other languages only when stdin is provided
+    const codeToRun = (stdin !== undefined || language === "java" || language === "cpp" || language === "c") ? wrapWithDriver(code, language) : code;
+    const result = await runCode({ code: codeToRun, language, stdin }).catch((err) => ({
       stdout: null,
       stderr: err instanceof Error ? err.message : "Execution failed",
       compileOutput: null,

@@ -21,13 +21,19 @@ export default async function Home() {
     select: { userId: true },
   });
 
-  const sessions = account
-    ? await prisma.session.findMany({
-        where: { userId: account.userId },
-        orderBy: { createdAt: "desc" },
-        include: { problem: { select: { id: true, title: true, difficulty: true } } },
-      })
-    : [];
+  const [sessions, problems] = await Promise.all([
+    account
+      ? prisma.session.findMany({
+          where: { userId: account.userId },
+          orderBy: { createdAt: "desc" },
+          include: { problem: { select: { id: true, title: true, difficulty: true } } },
+        })
+      : Promise.resolve([]),
+    prisma.problem.findMany({
+      select: { id: true, title: true, difficulty: true },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
 
   const serialized = sessions.map((s) => ({
     id: s.id,
@@ -37,8 +43,9 @@ export default async function Home() {
     createdAt: s.createdAt.toISOString(),
     allowAutocomplete: s.allowAutocomplete,
     allowLanguageChange: s.allowLanguageChange,
+    problemId: s.problemId,
     problem: s.problem ? { title: s.problem.title, difficulty: s.problem.difficulty } : null,
   }));
 
-  return <SessionsDashboard sessions={serialized} />;
+  return <SessionsDashboard sessions={serialized} problems={problems} />;
 }

@@ -47,7 +47,14 @@ interface Session {
   createdAt: string;
   allowAutocomplete: boolean;
   allowLanguageChange: boolean;
+  problemId?: string | null;
   problem: { title: string; difficulty: string } | null;
+}
+
+interface ProblemOption {
+  id: string;
+  title: string;
+  difficulty: string;
 }
 
 interface SessionForm {
@@ -55,6 +62,7 @@ interface SessionForm {
   language: string;
   allowAutocomplete: boolean;
   allowLanguageChange: boolean;
+  problemId: string;
 }
 
 const DEFAULT_FORM: SessionForm = {
@@ -62,19 +70,27 @@ const DEFAULT_FORM: SessionForm = {
   language: "javascript",
   allowAutocomplete: true,
   allowLanguageChange: true,
+  problemId: "",
 };
 
 function SessionFormFields({
   form,
   onChange,
   titleError,
+  problems,
 }: {
   form: SessionForm;
   onChange: (patch: Partial<SessionForm>) => void;
   titleError?: string;
+  problems: ProblemOption[];
 }) {
+  const problemOptions = [
+    { value: "", label: "No problem" },
+    ...problems.map((p) => ({ value: p.id, label: `${p.title} · ${p.difficulty.charAt(0) + p.difficulty.slice(1).toLowerCase()}` })),
+  ];
+
   return (
-    <div className="flex flex-col gap-4 py-2">
+    <div className="flex flex-col gap-4 px-6 py-3">
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="session-title" required>Title</Label>
         <Input
@@ -85,6 +101,16 @@ function SessionFormFields({
           invalid={!!titleError}
         />
         {titleError && <p className="text-sm text-destructive">{titleError}</p>}
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label>Problem</Label>
+        <Select
+          options={problemOptions}
+          value={form.problemId}
+          onChange={(v) => onChange({ problemId: v })}
+          placeholder="No problem"
+          clearable
+        />
       </div>
       <div className="flex flex-col gap-1.5">
         <Label>Language</Label>
@@ -112,7 +138,7 @@ function SessionFormFields({
   );
 }
 
-export function SessionsDashboard({ sessions: initial }: { sessions: Session[] }) {
+export function SessionsDashboard({ sessions: initial, problems }: { sessions: Session[]; problems: ProblemOption[] }) {
   const router = useRouter();
   const [sessions, setSessions] = useState(initial);
 
@@ -141,7 +167,7 @@ export function SessionsDashboard({ sessions: initial }: { sessions: Session[] }
 
   function openEdit(s: Session) {
     setEditTarget(s);
-    setEditForm({ title: s.title, language: s.language, allowAutocomplete: s.allowAutocomplete, allowLanguageChange: s.allowLanguageChange });
+    setEditForm({ title: s.title, language: s.language, allowAutocomplete: s.allowAutocomplete, allowLanguageChange: s.allowLanguageChange, problemId: s.problemId ?? "" });
     setEditError("");
   }
 
@@ -217,7 +243,7 @@ export function SessionsDashboard({ sessions: initial }: { sessions: Session[] }
               <DialogTitle>New Session</DialogTitle>
               <DialogDescription>Create a new collaborative coding session.</DialogDescription>
             </DialogHeader>
-            <SessionFormFields form={createForm} onChange={(p) => setCreateForm((f) => ({ ...f, ...p }))} titleError={createError} />
+            <SessionFormFields form={createForm} onChange={(p) => setCreateForm((f) => ({ ...f, ...p }))} titleError={createError} problems={problems} />
             <DialogFooter>
               <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
               <Button loading={creating} onClick={handleCreate}>Create</Button>
@@ -263,7 +289,7 @@ export function SessionsDashboard({ sessions: initial }: { sessions: Session[] }
             <DialogTitle>Edit Session</DialogTitle>
             <DialogDescription>Update session settings.</DialogDescription>
           </DialogHeader>
-          <SessionFormFields form={editForm} onChange={(p) => setEditForm((f) => ({ ...f, ...p }))} titleError={editError} />
+          <SessionFormFields form={editForm} onChange={(p) => setEditForm((f) => ({ ...f, ...p }))} titleError={editError} problems={problems} />
           <DialogFooter>
             <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
             <Button loading={saving} onClick={handleSave}>Save</Button>

@@ -13,6 +13,7 @@ export async function POST(request: Request) {
   const language = typeof body.language === "string" ? body.language : "javascript";
   const allowAutocomplete = typeof body.allowAutocomplete === "boolean" ? body.allowAutocomplete : true;
   const allowLanguageChange = typeof body.allowLanguageChange === "boolean" ? body.allowLanguageChange : true;
+  const problemId = typeof body.problemId === "string" && body.problemId ? body.problemId : undefined;
 
   if (!title) {
     return NextResponse.json({ error: "Title is required" }, { status: 400 });
@@ -30,7 +31,7 @@ export async function POST(request: Request) {
   }
 
   const created = await prisma.session.create({
-    data: { title, language, allowAutocomplete, allowLanguageChange, userId: account.userId },
+    data: { title, language, allowAutocomplete, allowLanguageChange, problemId, userId: account.userId },
   });
 
   return NextResponse.json(created, { status: 201 });

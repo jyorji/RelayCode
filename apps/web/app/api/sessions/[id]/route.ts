@@ -30,6 +30,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (typeof body.allowAutocomplete === "boolean") data.allowAutocomplete = body.allowAutocomplete;
   if (typeof body.allowLanguageChange === "boolean") data.allowLanguageChange = body.allowLanguageChange;
   if (typeof body.code === "string") data.code = body.code;
+  if (typeof body.problemId === "string") data.problemId = body.problemId || null;
 
   const updated = await prisma.session.update({ where: { id }, data });
   return NextResponse.json(updated);

@@ -14,22 +14,46 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
 
   const dbSession = await prisma.session.findUnique({
     where: { id },
-    select: { id: true, code: true, allowAutocomplete: true, allowLanguageChange: true },
+    select: {
+      id: true,
+      code: true,
+      language: true,
+      allowAutocomplete: true,
+      allowLanguageChange: true,
+      problem: { select: { id: true, title: true, description: true, difficulty: true, starterCode: true, testCases: true } },
+    },
   });
   if (!dbSession) notFound();
+
+  const starterCode = dbSession.problem?.starterCode as Record<string, string> | null;
+  const initialCode = dbSession.code || starterCode?.[dbSession.language] || "";
+  const testCases = (dbSession.problem?.testCases as Array<{ input: string; expected: string }> | null) ?? [];
+
+  const problem = dbSession.problem
+    ? {
+        id: dbSession.problem.id,
+        title: dbSession.problem.title,
+        description: dbSession.problem.description,
+        difficulty: dbSession.problem.difficulty as "EASY" | "MEDIUM" | "HARD",
+      }
+    : null;
 
   return (
     <main className="flex min-h-0 flex-1 flex-col">
       <div className="min-h-0 flex-1">
         <EditorClient
           sessionId={id}
-          initialCode={dbSession.code}
+          initialCode={initialCode}
+          sessionLanguage={dbSession.language}
           allowAutocomplete={dbSession.allowAutocomplete}
           allowLanguageChange={dbSession.allowLanguageChange}
           isGuest={isGuest}
           currentUserName={currentUserName}
           currentUserImage={currentUserImage}
           currentUserId={currentUserId}
+          problem={problem}
+          starterCode={starterCode ?? {}}
+          testCases={testCases}
         />
       </div>
     </main>

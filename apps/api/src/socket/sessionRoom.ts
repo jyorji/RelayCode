@@ -153,13 +153,15 @@ export function registerSessionRoom(io: Server) {
         code,
         language,
         stdin,
+        requestId: clientRequestId,
       }: {
         sessionId: string;
         code: string;
         language: string;
         stdin?: string;
+        requestId?: string;
       }) => {
-        const requestId = randomUUID();
+        const requestId = clientRequestId ?? randomUUID();
         await publishToQueue(EXECUTION_QUEUE, { requestId, sessionId, code, language, stdin, userId });
         socket.emit("code:run:queued", { requestId });
       },

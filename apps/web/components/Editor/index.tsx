@@ -7,7 +7,8 @@ import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
 import { MonacoBinding } from "y-monaco";
 import { io, type Socket } from "socket.io-client";
-import { Avatar, AvatarGroup, Badge, Button, Input, Label, Select } from "forge-ui";
+import { Avatar, AvatarGroup, Badge, Button, Icon, Input, Label, Select } from "forge-ui";
+import { ProblemRenderer } from "./ProblemRenderer";
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? "http://localhost:4000";
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
@@ -37,11 +38,113 @@ const LANGUAGE_OPTIONS = [
   { value: "ruby", label: "Ruby" },
 ];
 
+const DEFAULT_STARTERS: Record<string, string> = {
+  javascript: `/**
+ * @param {*} input
+ * @return {*}
+ */
+function solution(input) {
+  // your code here
+}`,
+  typescript: `function solution(input: unknown): unknown {
+  // your code here
+}`,
+  python: `def solution(input):
+    # your code here
+    pass`,
+  java: `class Solution {
+    public static Object solution(Object input) {
+        // your code here
+        return null;
+    }
+}`,
+  cpp: `#include <bits/stdc++.h>
+using namespace std;
+
+// your code here
+`,
+  c: `#include <stdio.h>
+#include <stdlib.h>
+
+// your code here
+`,
+  go: `package main
+
+func solution(input interface{}) interface{} {
+	// your code here
+	return nil
+}`,
+  ruby: `def solution(input)
+  # your code here
+end`,
+};
+
+interface TestCase {
+  input: string;
+  expected: string;
+}
+
+interface CustomTestCase {
+  inputs: string[];
+  expected: string;
+}
+
+function extractParamNames(code: string, language: string): string[] {
+  let match: RegExpMatchArray | null = null;
+
+  if (language === "python" || language === "ruby") {
+    match = code.match(/def\s+\w+\s*\(([^)]*)\)/);
+  } else if (language === "go") {
+    match = code.match(/func\s+\w+\s*\(([^)]*)\)/);
+  } else if (language === "javascript" || language === "typescript") {
+    match =
+      code.match(/function\s+\w+\s*\(([^)]*)\)/) ??
+      code.match(/(?:const|let|var)\s+\w+\s*=\s*(?:async\s*)?\(([^)]*)\)/);
+  } else {
+    match = code.match(/\b\w[\w<>[\]]*\s+\w+\s*\(([^)]*)\)/);
+  }
+
+  const paramStr = match?.[1]?.trim();
+  if (!paramStr) return [];
+
+  const typed = ["java", "cpp", "c"].includes(language);
+  const isGo = language === "go";
+
+  return paramStr
+    .split(",")
+    .map((p) => {
+      const clean = p.trim().replace(/^\.\.\./, "");
+      if (!clean) return "";
+      if (isGo) return clean.split(/\s+/)[0].replace(/\W/g, "");
+      if (typed) return (clean.split(/\s+/).pop() ?? "").replace(/\W/g, "");
+      return clean.split(/[:=]/)[0].trim().replace(/[^a-zA-Z0-9_]/g, "");
+    })
+    .filter(Boolean);
+}
+
+function resultPassed(result: RunResult, expected: string): boolean {
+  if (result.compileOutput || result.stderr) return false;
+  return (result.stdout ?? "").trim() === expected.trim();
+}
+
 interface PresenceUser {
   userId: string;
   name: string;
   image: string | null;
 }
+
+interface Problem {
+  id: string;
+  title: string;
+  description: string;
+  difficulty: "EASY" | "MEDIUM" | "HARD";
+}
+
+const DIFFICULTY_VARIANT: Record<string, "success" | "warning" | "destructive"> = {
+  EASY: "success",
+  MEDIUM: "warning",
+  HARD: "destructive",
+};
 
 interface RunResult {
   stdout: string | null;
@@ -98,21 +201,29 @@ function makeAvatarNode(color: string, initial: string, image: string | null): H
 export function CollaborativeEditor({
   sessionId,
   initialCode = "",
+  sessionLanguage = "javascript",
   allowAutocomplete = true,
   allowLanguageChange = true,
   isGuest = false,
   currentUserName = null,
   currentUserImage = null,
   currentUserId = null,
+  problem = null,
+  starterCode = {},
+  testCases = [],
 }: {
   sessionId: string;
   initialCode?: string;
+  sessionLanguage?: string;
   allowAutocomplete?: boolean;
   allowLanguageChange?: boolean;
   isGuest?: boolean;
   currentUserName?: string | null;
   currentUserImage?: string | null;
   currentUserId?: string | null;
+  problem?: Problem | null;
+  starterCode?: Record<string, string>;
+  testCases?: TestCase[];
 }) {
   const [guestName, setGuestName] = useState("");
   const [guestEmail, setGuestEmail] = useState("");
@@ -120,12 +231,26 @@ export function CollaborativeEditor({
   const [guestJoining, setGuestJoining] = useState(false);
   const [guestToken, setGuestToken] = useState<string | null>(isGuest ? null : "");
 
-  const [language, setLanguage] = useState("javascript");
+  const [language, setLanguage] = useState(sessionLanguage);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("saved");
   const [presence, setPresence] = useState<PresenceUser[]>([]);
   const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<RunResult | null>(null);
+  const [consoleOpen, setConsoleOpen] = useState(false);
+  const [activeConsoleTab, setActiveConsoleTab] = useState<"testcase" | "output">("testcase");
+  const [activeCaseIdx, setActiveCaseIdx] = useState(0);
+  const [caseResults, setCaseResults] = useState<(RunResult | null)[]>([]);
+  const [customCases, setCustomCases] = useState<CustomTestCase[]>(() =>
+    testCases.map((tc) => ({ inputs: tc.input.split("\n"), expected: tc.expected })),
+  );
+  const [paramNames, setParamNames] = useState<string[]>(() =>
+    extractParamNames(
+      starterCode[sessionLanguage] ?? DEFAULT_STARTERS[sessionLanguage] ?? "",
+      sessionLanguage,
+    ),
+  );
+
+  const starterCodeRef = useRef<Record<string, string>>(starterCode);
 
   const socketRef = useRef<Socket | null>(null);
   const providerRef = useRef<WebsocketProvider | null>(null);
@@ -136,12 +261,17 @@ export function CollaborativeEditor({
   const pendingRequestId = useRef<string | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelledRef = useRef(false);
+  const pendingCaseRequests = useRef<Map<string, number>>(new Map());
   const displayNameRef = useRef<string>(currentUserName ?? "");
   const cursorStyleRef = useRef<HTMLStyleElement | null>(null);
   const widgetsRef = useRef<Map<number, WidgetEntry>>(new Map());
   // Stable per-page-load key stamped into every awareness state this client sends.
   // Lets us filter out our own stale state that lingers after a reconnect (different clientID, same localKey).
   const localKeyRef = useRef<string>(Math.random().toString(36).slice(2));
+
+  const [panelWidth, setPanelWidth] = useState(384);
+  const [isPanelDragging, setIsPanelDragging] = useState(false);
+  const panelDragRef = useRef({ dragging: false, startX: 0, startWidth: 0 });
 
   // CSS for selection highlight + cursor bar only (no name label — widget handles that)
   function injectSelectionStyles(awareness: WebsocketProvider["awareness"]) {
@@ -316,8 +446,9 @@ export function CollaborativeEditor({
       provider.once("sync", () => {
         if (cancelled) return;
         const ytext = doc.getText("monaco");
-        if (ytext.length === 0 && initialCode) {
-          doc.transact(() => ytext.insert(0, initialCode));
+        const seed = initialCode || DEFAULT_STARTERS[sessionLanguage] || "";
+        if (ytext.length === 0 && seed) {
+          doc.transact(() => ytext.insert(0, seed));
         }
       });
 
@@ -333,14 +464,25 @@ export function CollaborativeEditor({
       socket.on("presence:update", ({ users }: { users: PresenceUser[] }) => setPresence(users));
       socket.on("language:changed", ({ language }: { language: string }) => setLanguage(language));
       socket.on("code:run:queued", ({ requestId }: { requestId: string }) => {
-        pendingRequestId.current = requestId;
-        setRunning(true);
-        setResult(null);
+        if (!pendingCaseRequests.current.has(requestId)) {
+          pendingRequestId.current = requestId;
+          setRunning(true);
+        }
       });
       socket.on("code:run:result", ({ requestId, result }: { requestId: string; result: RunResult }) => {
-        if (pendingRequestId.current !== requestId) return;
-        setRunning(false);
-        setResult(result);
+        const caseIdx = pendingCaseRequests.current.get(requestId);
+        if (caseIdx !== undefined) {
+          setCaseResults((prev) => {
+            const next = [...prev];
+            next[caseIdx] = result;
+            return next;
+          });
+          pendingCaseRequests.current.delete(requestId);
+          if (pendingCaseRequests.current.size === 0) setRunning(false);
+        } else if (pendingRequestId.current === requestId) {
+          setRunning(false);
+          setCaseResults([result]);
+        }
       });
     }
 
@@ -372,13 +514,94 @@ export function CollaborativeEditor({
   };
 
   function handleLanguageChange(next: string) {
+    const nextStarter = starterCodeRef.current[next] || DEFAULT_STARTERS[next] || "";
+    if (nextStarter) {
+      const editor = editorRef.current;
+      const model = editor?.getModel();
+      if (editor && model) {
+        editor.executeEdits("language-change", [{
+          range: model.getFullModelRange(),
+          text: nextStarter,
+          forceMoveMarkers: true,
+        }]);
+      } else {
+        const doc = docRef.current;
+        if (doc) {
+          const ytext = doc.getText("monaco");
+          doc.transact(() => {
+            ytext.delete(0, ytext.length);
+            ytext.insert(0, nextStarter);
+          });
+        }
+      }
+    }
     setLanguage(next);
     socketRef.current?.emit("language:change", { sessionId, language: next });
   }
 
+  useEffect(() => {
+    const starter = starterCodeRef.current[language] ?? DEFAULT_STARTERS[language] ?? "";
+    setParamNames(extractParamNames(starter, language));
+  }, [language]);
+
+  useEffect(() => {
+    function onMouseMove(e: MouseEvent) {
+      if (!panelDragRef.current.dragging) return;
+      const next = Math.max(240, Math.min(700, panelDragRef.current.startWidth + e.clientX - panelDragRef.current.startX));
+      setPanelWidth(next);
+    }
+    function onMouseUp() {
+      if (!panelDragRef.current.dragging) return;
+      panelDragRef.current.dragging = false;
+      setIsPanelDragging(false);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    }
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+    return () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, []);
+
+  function startPanelDrag(e: React.MouseEvent) {
+    e.preventDefault();
+    panelDragRef.current = { dragging: true, startX: e.clientX, startWidth: panelWidth };
+    setIsPanelDragging(true);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }
+
   function handleRun() {
     const code = editorRef.current?.getValue() ?? "";
-    socketRef.current?.emit("code:run", { sessionId, code, language });
+    setConsoleOpen(true);
+    setActiveConsoleTab("output");
+    setCaseResults([]);
+    pendingCaseRequests.current = new Map();
+    pendingRequestId.current = null;
+
+    if (customCases.length > 0) {
+      setCaseResults(new Array(customCases.length).fill(null));
+      setRunning(true);
+      const newPending = new Map<string, number>();
+      customCases.forEach((tc, idx) => {
+        const reqId = `${Math.random().toString(36).slice(2)}-${idx}`;
+        newPending.set(reqId, idx);
+        socketRef.current?.emit("code:run", {
+          sessionId,
+          code,
+          language,
+          stdin: tc.inputs.join("\n"),
+          requestId: reqId,
+        });
+      });
+      pendingCaseRequests.current = newPending;
+    } else {
+      socketRef.current?.emit("code:run", { sessionId, code, language });
+    }
   }
 
   async function handleGuestJoin() {
@@ -436,7 +659,33 @@ export function CollaborativeEditor({
   const saveVariant = saveStatus === "saved" ? "secondary" : saveStatus === "saving" ? "warning" : "destructive";
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full">
+      {problem && (
+        <>
+          <div
+            className="flex flex-shrink-0 flex-col overflow-y-auto bg-background"
+            style={{ width: panelWidth }}
+          >
+            <div className="border-b border-border px-4 pb-3 pt-4">
+              <h1 className="text-base font-semibold leading-snug text-foreground">{problem.title}</h1>
+              <div className="mt-2">
+                <Badge variant={DIFFICULTY_VARIANT[problem.difficulty]}>
+                  {problem.difficulty.charAt(0) + problem.difficulty.slice(1).toLowerCase()}
+                </Badge>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto px-4 py-4">
+              <ProblemRenderer description={problem.description} />
+            </div>
+          </div>
+          <div
+            className="w-1 flex-shrink-0 cursor-col-resize bg-border transition-colors hover:bg-primary/50 active:bg-primary"
+            onMouseDown={startPanelDrag}
+          />
+        </>
+      )}
+      <div className="relative flex min-w-0 flex-1 flex-col">
+        {isPanelDragging && <div className="absolute inset-0 z-10 cursor-col-resize" />}
       <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2">
         <div className="flex items-center gap-3">
           <div className="w-36">
@@ -453,7 +702,6 @@ export function CollaborativeEditor({
                 fallback={user.name.slice(0, 2).toUpperCase()} />
             ))}
           </AvatarGroup>
-          <Button size="sm" leftIcon="play_arrow" loading={running} onClick={handleRun}>Run</Button>
         </div>
       </div>
 
@@ -470,14 +718,232 @@ export function CollaborativeEditor({
         />
       </div>
 
-      {result && (
-        <div className="max-h-48 overflow-auto border-t border-border bg-black/90 px-4 py-2 font-mono text-sm text-white">
-          <div className="mb-1 text-xs uppercase text-white/50">{result.status}</div>
-          {result.stdout && <pre className="whitespace-pre-wrap">{result.stdout}</pre>}
-          {result.stderr && <pre className="whitespace-pre-wrap text-red-400">{result.stderr}</pre>}
-          {result.compileOutput && <pre className="whitespace-pre-wrap text-yellow-400">{result.compileOutput}</pre>}
+      {/* Console panel */}
+      <div className="flex flex-col border-t border-border">
+        {consoleOpen && (
+          <div className="flex h-64 flex-col border-b border-border">
+            {/* Tab bar */}
+            <div className="flex shrink-0 border-b border-border">
+              {(["testcase", "output"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveConsoleTab(tab)}
+                  className={`px-4 py-2 text-sm font-medium transition-colors ${
+                    activeConsoleTab === tab
+                      ? "border-b-2 border-primary text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {tab === "testcase" ? "Test Case" : "Output"}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex-1 overflow-auto p-4 font-mono text-sm">
+              {activeConsoleTab === "testcase" ? (
+                <>
+                  {/* Case selector */}
+                  <div className="mb-3 flex flex-wrap gap-1.5">
+                    {customCases.map((_, idx) => (
+                      <div
+                        key={idx}
+                        className={`flex items-center rounded-md text-xs font-medium transition-colors ${
+                          activeCaseIdx === idx ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                        }`}
+                      >
+                        <button className="px-3 py-1" onClick={() => setActiveCaseIdx(idx)}>
+                          Case {idx + 1}
+                        </button>
+                        {customCases.length > 1 && (
+                          <button
+                            className="pr-2 text-muted-foreground hover:text-destructive"
+                            onClick={() => {
+                              setCustomCases((prev) => prev.filter((_, i) => i !== idx));
+                              setActiveCaseIdx((prev) => (prev >= idx && prev > 0 ? prev - 1 : prev));
+                            }}
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <button
+                      onClick={() => {
+                        setCustomCases((prev) => [
+                          ...prev,
+                          { inputs: Array.from({ length: Math.max(paramNames.length, 1) }, () => ""), expected: "" },
+                        ]);
+                        setActiveCaseIdx(customCases.length);
+                      }}
+                      className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                    >
+                      +
+                    </button>
+                  </div>
+
+                  {/* Inputs */}
+                  {customCases[activeCaseIdx] ? (
+                    <div className="flex flex-col gap-3">
+                      {customCases[activeCaseIdx].inputs.map((val, i) => (
+                        <div key={i}>
+                          <p className="mb-1 text-xs text-muted-foreground">
+                            {paramNames[i] ? `${paramNames[i]} =` : "Input"}
+                          </p>
+                          <Input
+                            value={val}
+                            size="sm"
+                            className="font-mono"
+                            onChange={(e) =>
+                              setCustomCases((prev) =>
+                                prev.map((c, ci) =>
+                                  ci === activeCaseIdx
+                                    ? { ...c, inputs: c.inputs.map((v, vi) => (vi === i ? e.target.value : v)) }
+                                    : c,
+                                ),
+                              )
+                            }
+                          />
+                        </div>
+                      ))}
+                      <div>
+                        <p className="mb-1 text-xs text-muted-foreground">Expected Output</p>
+                        <Input
+                          value={customCases[activeCaseIdx].expected}
+                          size="sm"
+                          className="font-mono"
+                          onChange={(e) =>
+                            setCustomCases((prev) =>
+                              prev.map((c, ci) => (ci === activeCaseIdx ? { ...c, expected: e.target.value } : c)),
+                            )
+                          }
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-muted-foreground">No test cases. Click + to add one.</p>
+                  )}
+                </>
+              ) : (
+                /* Output tab */
+                customCases.length > 0 ? (
+                  <>
+                    {/* Case selector with pass/fail indicators */}
+                    <div className="mb-3 flex flex-wrap gap-1.5">
+                      {customCases.map((tc, idx) => {
+                        const res = caseResults[idx];
+                        const passed = res ? resultPassed(res, tc.expected) : null;
+                        return (
+                          <button
+                            key={idx}
+                            onClick={() => setActiveCaseIdx(idx)}
+                            className={`flex items-center gap-1 rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                              activeCaseIdx === idx ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                            }`}
+                          >
+                            {passed === true && <span className="text-green-400">✓</span>}
+                            {passed === false && <span className="text-red-400">✗</span>}
+                            Case {idx + 1}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Selected case result */}
+                    {(() => {
+                      const res = caseResults[activeCaseIdx];
+                      const tc = customCases[activeCaseIdx];
+                      if (!res) {
+                        return (
+                          <p className="text-muted-foreground">
+                            {running ? "Running…" : "Click Run to execute."}
+                          </p>
+                        );
+                      }
+                      const passed = resultPassed(res, tc?.expected ?? "");
+                      return (
+                        <div className="flex flex-col gap-2">
+                          {tc?.inputs && tc.inputs.length > 0 && (
+                            <div>
+                              <p className="mb-1 text-xs text-muted-foreground">Input</p>
+                              <pre className="rounded bg-black/30 px-3 py-2 text-foreground/80">
+                                {tc.inputs.map((val, i) => `${paramNames[i] ?? `arg${i + 1}`} = ${val}`).join("\n")}
+                              </pre>
+                            </div>
+                          )}
+                          {res.compileOutput && (
+                            <pre className="whitespace-pre-wrap text-yellow-400">{res.compileOutput}</pre>
+                          )}
+                          {res.stderr ? (
+                            <pre className="whitespace-pre-wrap text-red-400">{res.stderr}</pre>
+                          ) : (
+                            <>
+                              <div>
+                                <p className="mb-1 text-xs text-muted-foreground">Output</p>
+                                <pre className={`rounded px-3 py-2 ${passed ? "bg-green-950/50 text-green-300" : "bg-red-950/50 text-red-300"}`}>
+                                  {res.stdout ?? "(no output)"}
+                                </pre>
+                              </div>
+                              <div>
+                                <p className="mb-1 text-xs text-muted-foreground">Expected</p>
+                                <pre className="rounded bg-black/30 px-3 py-2 text-foreground/80">{tc?.expected}</pre>
+                              </div>
+                            </>
+                          )}
+                          <div>
+                            <Badge variant={passed ? "success" : "destructive"}>
+                              {passed ? "Passed" : res.stderr ? "Runtime Error" : "Wrong Answer"}
+                            </Badge>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </>
+                ) : (
+                  /* No test cases — raw output */
+                  caseResults[0] ? (
+                    <div className="flex flex-col gap-1 text-white">
+                      <p className="mb-1 text-xs uppercase text-white/50">{caseResults[0].status}</p>
+                      {caseResults[0].compileOutput && (
+                        <pre className="whitespace-pre-wrap text-yellow-400">{caseResults[0].compileOutput}</pre>
+                      )}
+                      {caseResults[0].stdout && <pre className="whitespace-pre-wrap">{caseResults[0].stdout}</pre>}
+                      {caseResults[0].stderr && (
+                        <pre className="whitespace-pre-wrap text-red-400">{caseResults[0].stderr}</pre>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-muted-foreground">
+                      {running ? "Running…" : "Click Run to execute."}
+                    </p>
+                  )
+                )
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Bottom toolbar */}
+        <div className="flex items-center justify-between px-4 py-2">
+          <button
+            onClick={() => setConsoleOpen((v) => !v)}
+            className="flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <span>Console</span>
+            <Icon name={consoleOpen ? "expand_more" : "expand_less"} size="sm" />
+          </button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" leftIcon="play_arrow" loading={running} onClick={handleRun}>
+              Run
+            </Button>
+            {customCases.length > 0 && (
+              <Button size="sm" variant="success" loading={running} onClick={handleRun}>
+                Submit
+              </Button>
+            )}
+          </div>
         </div>
-      )}
+      </div>
+      </div>
     </div>
   );
 }
