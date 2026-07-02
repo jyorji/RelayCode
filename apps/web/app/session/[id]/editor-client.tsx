@@ -32,6 +32,7 @@ export function EditorClient(props: {
   problem: Problem | null;
   starterCode: Record<string, string>;
   testCases: TestCase[];
+  codeByLanguage: Record<string, string>;
 }) {
   return <CollaborativeEditor {...props} />;
 }
