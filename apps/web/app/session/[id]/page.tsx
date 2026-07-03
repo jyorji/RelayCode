@@ -12,21 +12,28 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
   const currentUserImage = session?.user.picture ?? null;
   const currentUserId = session?.user.sub ?? null;
 
-  const dbSession = await prisma.session.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      code: true,
-      language: true,
-      allowAutocomplete: true,
-      allowLanguageChange: true,
-      problem: { select: { id: true, title: true, description: true, difficulty: true, starterCode: true, testCases: true } },
-    },
-  });
+  const [dbSession, sessionCodes] = await Promise.all([
+    prisma.session.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        code: true,
+        language: true,
+        allowAutocomplete: true,
+        allowLanguageChange: true,
+        problem: { select: { id: true, title: true, description: true, difficulty: true, starterCode: true, testCases: true } },
+      },
+    }),
+    prisma.sessionCode.findMany({
+      where: { sessionId: id },
+      select: { language: true, code: true },
+    }),
+  ]);
   if (!dbSession) notFound();
 
+  const codeByLanguage = Object.fromEntries(sessionCodes.map((sc) => [sc.language, sc.code]));
   const starterCode = dbSession.problem?.starterCode as Record<string, string> | null;
-  const initialCode = dbSession.code || starterCode?.[dbSession.language] || "";
+  const initialCode = codeByLanguage[dbSession.language] ?? dbSession.code ?? starterCode?.[dbSession.language] ?? "";
   const testCases = (dbSession.problem?.testCases as Array<{ input: string; expected: string }> | null) ?? [];
 
   const problem = dbSession.problem
@@ -54,6 +61,7 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
           problem={problem}
           starterCode={starterCode ?? {}}
           testCases={testCases}
+          codeByLanguage={codeByLanguage}
         />
       </div>
     </main>

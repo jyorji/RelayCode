@@ -34,6 +34,17 @@ model Account {
   @@unique([provider, providerAccountId])
 }
 
+model SessionCode {
+  id        String   @id @default(cuid())
+  sessionId String
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  language  String
+  code      String   @db.Text
+  updatedAt DateTime @updatedAt
+
+  @@unique([sessionId, language])
+}
+
 model Session {
   id          String         @id @default(cuid())
   title       String
@@ -44,6 +55,7 @@ model Session {
   problemId   String?
   problem     Problem?       @relation(fields: [problemId], references: [id], onDelete: SetNull)
   events      SessionEvent[]
+  sessionCodes SessionCode[]
   code                String         @default("") @db.Text
   notes               String?
   allowAutocomplete   Boolean        @default(true)

@@ -211,6 +211,7 @@ export function CollaborativeEditor({
   problem = null,
   starterCode = {},
   testCases = [],
+  codeByLanguage = {},
 }: {
   sessionId: string;
   initialCode?: string;
@@ -224,6 +225,7 @@ export function CollaborativeEditor({
   problem?: Problem | null;
   starterCode?: Record<string, string>;
   testCases?: TestCase[];
+  codeByLanguage?: Record<string, string>;
 }) {
   const [guestName, setGuestName] = useState("");
   const [guestEmail, setGuestEmail] = useState("");
@@ -251,6 +253,19 @@ export function CollaborativeEditor({
   );
 
   const starterCodeRef = useRef<Record<string, string>>(starterCode);
+  const savedCodeRef = useRef<Record<string, string>>(
+    (() => {
+      try {
+        const local = JSON.parse(localStorage.getItem(`relay-lang-code:${sessionId}`) ?? "{}") as Record<string, string>;
+        // DB wins over localStorage — merge with DB data taking priority
+        return { ...local, ...codeByLanguage };
+      } catch {
+        return { ...codeByLanguage };
+      }
+    })()
+  );
+  // Ref kept in sync with the language state so closures (scheduleSave, ytext.observe) see the current value
+  const currentLanguageRef = useRef(sessionLanguage);
 
   const socketRef = useRef<Socket | null>(null);
   const providerRef = useRef<WebsocketProvider | null>(null);
@@ -370,6 +385,15 @@ export function CollaborativeEditor({
     });
   }
 
+  function saveLanguageCode(language: string, code: string) {
+    if (isGuest) return;
+    fetch(`/api/sessions/${sessionId}/code`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ language, code }),
+    }).catch(() => {});
+  }
+
   function scheduleSave(code: string) {
     setSaveStatus("unsaved");
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -377,11 +401,19 @@ export function CollaborativeEditor({
       if (cancelledRef.current) return;
       setSaveStatus("saving");
       try {
-        await fetch(`/api/sessions/${sessionId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code }),
-        });
+        const lang = currentLanguageRef.current;
+        await Promise.all([
+          fetch(`/api/sessions/${sessionId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code }),
+          }),
+          isGuest ? Promise.resolve() : fetch(`/api/sessions/${sessionId}/code`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ language: lang, code }),
+          }),
+        ]);
         if (!cancelledRef.current) setSaveStatus("saved");
       } catch {
         if (!cancelledRef.current) setSaveStatus("unsaved");
@@ -514,32 +546,44 @@ export function CollaborativeEditor({
   };
 
   function handleLanguageChange(next: string) {
-    const nextStarter = starterCodeRef.current[next] || DEFAULT_STARTERS[next] || "";
-    if (nextStarter) {
-      const editor = editorRef.current;
-      const model = editor?.getModel();
-      if (editor && model) {
-        editor.executeEdits("language-change", [{
-          range: model.getFullModelRange(),
-          text: nextStarter,
-          forceMoveMarkers: true,
-        }]);
-      } else {
-        const doc = docRef.current;
-        if (doc) {
-          const ytext = doc.getText("monaco");
-          doc.transact(() => {
-            ytext.delete(0, ytext.length);
-            ytext.insert(0, nextStarter);
-          });
-        }
+    // Persist current language's code before switching
+    const currentCode = docRef.current?.getText("monaco").toString() ?? editorRef.current?.getValue() ?? "";
+    savedCodeRef.current[language] = currentCode;
+    try {
+      localStorage.setItem(`relay-lang-code:${sessionId}`, JSON.stringify(savedCodeRef.current));
+    } catch {}
+    saveLanguageCode(language, currentCode);
+
+    // Restore saved code for the target language, or fall back to starter
+    const nextCode = savedCodeRef.current[next] !== undefined
+      ? savedCodeRef.current[next]
+      : (starterCodeRef.current[next] ?? DEFAULT_STARTERS[next] ?? "");
+
+    const editor = editorRef.current;
+    const model = editor?.getModel();
+    if (editor && model) {
+      editor.executeEdits("language-change", [{
+        range: model.getFullModelRange(),
+        text: nextCode,
+        forceMoveMarkers: true,
+      }]);
+    } else {
+      const doc = docRef.current;
+      if (doc) {
+        const ytext = doc.getText("monaco");
+        doc.transact(() => {
+          ytext.delete(0, ytext.length);
+          ytext.insert(0, nextCode);
+        });
       }
     }
+
     setLanguage(next);
     socketRef.current?.emit("language:change", { sessionId, language: next });
   }
 
   useEffect(() => {
+    currentLanguageRef.current = language;
     const starter = starterCodeRef.current[language] ?? DEFAULT_STARTERS[language] ?? "";
     setParamNames(extractParamNames(starter, language));
   }, [language]);

@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:generate": "prisma generate --schema ../api/prisma/schema.prisma"
   },
   "dependencies": {
     "@auth0/nextjs-auth0": "^4.23.0",
@@ -30,6 +31,9 @@
     "y-websocket": "^3.0.0",
     "yjs": "^13.6.31",
     "zustand": "^5.0.14"
+  },
+  "prisma": {
+    "schema": "../api/prisma/schema.prisma"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
