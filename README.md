@@ -69,6 +69,12 @@ RelayCode replaces the screen-share-and-pray approach to coding interviews. An i
 <p align="center"><img src="docs/screenshots/session-editor.png" alt="RelayCode session editor with test cases" width="820"></p>
 </details>
 
+<details>
+<summary><b>AI-generated problems</b> — describe a prompt and Groq drafts the title, difficulty, tags, description, and starter tests for you</summary>
+<br>
+<p align="center"><img src="docs/screenshots/problem-ai-generation.png" alt="RelayCode AI problem generation" width="820"></p>
+</details>
+
 <div align="right"><a href="#-relaycode">↑ back to top</a></div>
 
 ## ✨ Features
