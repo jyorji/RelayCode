@@ -19,16 +19,17 @@ Interviewers spin up a session, share a link, and both sides land in the same sy
 </div>
 
 <p align="center">
-  <img src="docs/screenshots/login-screen.png" alt="RelayCode welcome screen" width="720">
+  <img src="docs/screenshots/session-editor.png" alt="RelayCode collaborative session editor" width="820">
 </p>
 
-<p align="center"><sub>A locally running instance of RelayCode, waiting for an interviewer to sign in.</sub></p>
+<p align="center"><sub>A live session — problem prompt, synchronized Monaco editor, and per-case test runner, side by side.</sub></p>
 
 <br>
 
 ## 📋 Contents
 
 - [Overview](#-overview)
+- [Screenshots](#-screenshots)
 - [Features](#-features)
 - [Tech stack](#-tech-stack)
 - [Project structure](#-project-structure)
@@ -41,6 +42,34 @@ Interviewers spin up a session, share a link, and both sides land in the same sy
 ## 🔭 Overview
 
 RelayCode replaces the screen-share-and-pray approach to coding interviews. An interviewer creates a session, sends a single relay link, and the candidate drops straight into a shared Monaco editor — no account required on their end. Every keystroke, run, and status change is synced live and logged for later replay.
+
+## 📸 Screenshots
+
+<details open>
+<summary><b>Sign in</b> — Auth0-backed authentication behind a clean, minimal shell</summary>
+<br>
+<p align="center"><img src="docs/screenshots/login-screen.png" alt="RelayCode sign-in screen" width="700"></p>
+</details>
+
+<details>
+<summary><b>Sessions dashboard</b> — every interview session, its language, and its live status at a glance</summary>
+<br>
+<p align="center"><img src="docs/screenshots/sessions-list.png" alt="RelayCode sessions dashboard" width="820"></p>
+</details>
+
+<details>
+<summary><b>Problem library</b> — reusable problems tagged by topic and difficulty, ready to attach to a session</summary>
+<br>
+<p align="center"><img src="docs/screenshots/problem-library.png" alt="RelayCode problem library" width="820"></p>
+</details>
+
+<details>
+<summary><b>Session editor</b> — the collaborative Monaco editor with the problem prompt, test cases, and run output</summary>
+<br>
+<p align="center"><img src="docs/screenshots/session-editor.png" alt="RelayCode session editor with test cases" width="820"></p>
+</details>
+
+<div align="right"><a href="#-relaycode">↑ back to top</a></div>
 
 ## ✨ Features
 
