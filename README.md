@@ -1,21 +1,65 @@
-# RelayCode
 
-A real-time collaborative coding interview platform. Interviewers create sessions, share a link with candidates, and both parties code together in a synchronized Monaco editor — with live presence, in-session chat, and one-click code execution.
+<div align="center">
 
-## Features
+# ⚡ RelayCode
 
-- **Collaborative editor** — Yjs CRDT keeps every participant's cursor and keystrokes in sync with no conflicts
-- **Code execution** — runs submissions through a self-hosted Judge0 engine via a RabbitMQ worker queue; results stream back to all participants in real time
-- **Multi-language support** — JavaScript, TypeScript, Python, Java, C++, C, Go, Ruby
-- **Guest access** — share a relay-token link; candidates join without an account
-- **Presence indicators** — see who is currently in the session with avatars
-- **Session lifecycle** — sessions move through `WAITING → ACTIVE → ENDED` states; start/end timestamps are recorded automatically
-- **Problem bank** — attach a problem (title, description, starter code, test cases, difficulty) to a session
-- **Session events** — every code run, language change, status change, and comment is persisted with a millisecond offset for replay
-- **Configurable sessions** — toggle autocomplete and language switching per session
-- **Auth0 authentication** — social login supported out of the box
+**Real-time collaborative coding interviews — one link, one editor, zero setup for candidates.**
 
-## Tech Stack
+Interviewers spin up a session, share a link, and both sides land in the same synchronized Monaco editor with live presence, in-session chat, and one-click code execution across eight languages.
+
+[![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org/)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Prisma-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![RabbitMQ](https://img.shields.io/badge/RabbitMQ-queue-FF6600?logo=rabbitmq&logoColor=white)](https://www.rabbitmq.com/)
+[![Judge0](https://img.shields.io/badge/Judge0-self--hosted-informational)](https://judge0.com/)
+[![Auth0](https://img.shields.io/badge/Auth0-social_login-EB5424?logo=auth0&logoColor=white)](https://auth0.com/)
+
+</div>
+
+<p align="center">
+  <img src="docs/screenshots/login-screen.png" alt="RelayCode welcome screen" width="720">
+</p>
+
+<p align="center"><sub>A locally running instance of RelayCode, waiting for an interviewer to sign in.</sub></p>
+
+<br>
+
+## 📋 Contents
+
+- [Overview](#-overview)
+- [Features](#-features)
+- [Tech stack](#-tech-stack)
+- [Project structure](#-project-structure)
+- [Getting started](#-getting-started)
+- [Environment variables](#-environment-variables-reference)
+- [How it works](#-how-it-works)
+- [Database schema](#-database-schema)
+- [Useful commands](#-useful-commands)
+
+## 🔭 Overview
+
+RelayCode replaces the screen-share-and-pray approach to coding interviews. An interviewer creates a session, sends a single relay link, and the candidate drops straight into a shared Monaco editor — no account required on their end. Every keystroke, run, and status change is synced live and logged for later replay.
+
+## ✨ Features
+
+<table>
+<tr><td>🧑‍🤝‍🧑</td><td><b>Collaborative editor</b></td><td>Yjs CRDT keeps every participant's cursor and keystrokes in sync with no conflicts</td></tr>
+<tr><td>▶️</td><td><b>Code execution</b></td><td>Runs submissions through a self-hosted Judge0 engine via a RabbitMQ worker queue; results stream back to everyone in real time</td></tr>
+<tr><td>🌐</td><td><b>Multi-language support</b></td><td>JavaScript, TypeScript, Python, Java, C++, C, Go, Ruby</td></tr>
+<tr><td>🔗</td><td><b>Guest access</b></td><td>Share a relay-token link — candidates join without creating an account</td></tr>
+<tr><td>👀</td><td><b>Presence indicators</b></td><td>See exactly who is in the session, with avatars</td></tr>
+<tr><td>🔄</td><td><b>Session lifecycle</b></td><td>Sessions move through <code>WAITING → ACTIVE → ENDED</code>; start/end timestamps are recorded automatically</td></tr>
+<tr><td>🧩</td><td><b>Problem bank</b></td><td>Attach a problem — title, description, starter code, test cases, difficulty — to any session</td></tr>
+<tr><td>📼</td><td><b>Session events</b></td><td>Every code run, language change, status change, and comment is persisted with a millisecond offset for replay</td></tr>
+<tr><td>⚙️</td><td><b>Configurable sessions</b></td><td>Toggle autocomplete and language switching per session</td></tr>
+<tr><td>🔐</td><td><b>Auth0 authentication</b></td><td>Social login supported out of the box</td></tr>
+</table>
+
+<div align="right"><a href="#-relaycode">↑ back to top</a></div>
+
+## 🧱 Tech stack
 
 | Layer | Technology |
 |---|---|
@@ -28,41 +72,46 @@ A real-time collaborative coding interview platform. Interviewers create session
 | Code execution | Judge0 (self-hosted) |
 | State | Zustand, TanStack React Query |
 
-## Project Structure
+## 🗂️ Project structure
+
+<details>
+<summary>Click to expand the full directory tree</summary>
 
 ```
 relay/
 ├── apps/
-│   ├── web/          # Next.js frontend (port 3000)
-│   │   ├── app/      # App Router pages and API routes
-│   │   ├── components/Editor/   # Collaborative Monaco editor
-│   │   ├── lib/      # Auth0 client, Prisma client, token helpers
-│   │   └── vendor/   # Vendored packages (forge-ui, y-monaco)
-│   └── api/          # Express backend (port 4000)
-│       ├── src/
-│       │   ├── routes/      # REST: /api/sessions, /api/problems
-│       │   ├── socket/      # Socket.io: session room + Yjs server
-│       │   ├── workers/     # RabbitMQ execution worker
-│       │   ├── lib/         # DB, queue, Judge0, session helpers
-│       │   └── middleware/  # Auth, error handling
-│       └── prisma/
-│           ├── schema.prisma
-│           └── migrations/
+│ ├── web/ # Next.js frontend (port 3000)
+│ │ ├── app/ # App Router pages and API routes
+│ │ ├── components/Editor/ # Collaborative Monaco editor
+│ │ ├── lib/ # Auth0 client, Prisma client, token helpers
+│ │ └── vendor/ # Vendored packages (forge-ui, y-monaco)
+│ └── api/ # Express backend (port 4000)
+│ ├── src/
+│ │ ├── routes/ # REST: /api/sessions, /api/problems
+│ │ ├── socket/ # Socket.io: session room + Yjs server
+│ │ ├── workers/ # RabbitMQ execution worker
+│ │ ├── lib/ # DB, queue, Judge0, session helpers
+│ │ └── middleware/ # Auth, error handling
+│ └── prisma/
+│ ├── schema.prisma
+│ └── migrations/
 ├── infra/
-│   └── judge0/       # Custom Judge0 job override
+│ └── judge0/ # Custom Judge0 job override
 ├── docker-compose.yml
-└── package.json      # Workspace root
+└── package.json # Workspace root
 ```
 
-## Prerequisites
+</details>
+
+## 🚀 Getting started
+
+### Prerequisites
 
 - [Node.js](https://nodejs.org/) 20+
 - [Docker](https://www.docker.com/) and Docker Compose
 - An [Auth0](https://auth0.com/) account (free tier is sufficient)
 
-## Local Setup
-
-### 1. Clone and install dependencies
+### 1. Clone and install
 
 ```bash
 git clone https://github.com/jyorji/RelayCode.git
@@ -72,14 +121,14 @@ npm install
 
 ### 2. Start infrastructure services
 
-All three services can be started together or individually.
-
-**Start everything at once**
 ```bash
+# everything at once
 docker compose up -d
 ```
 
-**Start services individually**
+<details>
+<summary>Start services individually, or manage them one at a time</summary>
+
 ```bash
 # PostgreSQL only (port 5432)
 docker compose up -d postgres
@@ -91,7 +140,6 @@ docker compose up -d rabbitmq
 docker compose up -d judge0
 ```
 
-**Other useful Docker commands**
 ```bash
 # Check which containers are running and healthy
 docker compose ps
@@ -108,7 +156,7 @@ docker compose down
 docker compose down -v
 ```
 
-Ports at a glance:
+**Ports at a glance**
 
 | Service | Port |
 |---|---|
@@ -116,6 +164,8 @@ Ports at a glance:
 | RabbitMQ AMQP | 5672 |
 | RabbitMQ Management UI | 15672 |
 | Judge0 API | 2358 |
+
+</details>
 
 ### 3. Configure environment variables
 
@@ -139,7 +189,7 @@ NEXT_PUBLIC_API_URL=http://localhost:4000
 JWT_SECRET=your-jwt-secret
 ```
 
-> `JWT_SECRET` must match in both apps — the API issues tokens and the web app verifies them when generating relay (guest) links.
+> ⚠️ `JWT_SECRET` must match in both apps — the API issues tokens and the web app verifies them when generating relay (guest) links.
 
 ### 4. Run database migrations
 
@@ -148,21 +198,20 @@ cd apps/api
 npm run db:migrate
 ```
 
-### 5. Start the development servers
-
-From the repo root:
+### 5. Start the dev servers
 
 ```bash
 npm run dev
 ```
 
-This concurrently starts:
-- **Web** → http://localhost:3000
-- **API** → http://localhost:4000
+This concurrently starts the **web** app on `http://localhost:3000` and the **API** on `http://localhost:4000`.
 
-## Environment Variables Reference
+<div align="right"><a href="#-relaycode">↑ back to top</a></div>
 
-### API (`apps/api/.env`)
+## 🔧 Environment variables reference
+
+<details>
+<summary><b>API</b> — <code>apps/api/.env</code></summary>
 
 | Variable | Description |
 |---|---|
@@ -172,7 +221,10 @@ This concurrently starts:
 | `JWT_SECRET` | Secret used to sign and verify relay tokens |
 | `PORT` | API server port (default: `4000`) |
 
-### Web (`apps/web/.env.local`)
+</details>
+
+<details>
+<summary><b>Web</b> — <code>apps/web/.env.local</code></summary>
 
 | Variable | Description |
 |---|---|
@@ -184,36 +236,52 @@ This concurrently starts:
 | `NEXT_PUBLIC_API_URL` | Base URL of the API (exposed to the browser) |
 | `JWT_SECRET` | Must match the API's `JWT_SECRET` |
 
-## How It Works
+</details>
+
+## 🧠 How it works
 
 ### Real-time collaboration
 
-The collaborative editor is powered by [Yjs](https://yjs.dev/). The API runs a Yjs WebSocket server alongside the Socket.io server on the same HTTP port. When a participant joins a session, the browser syncs the Yjs document over WebSocket — changes are merged automatically using CRDT conflict resolution, so concurrent edits never conflict.
+The collaborative editor is powered by [Yjs](https://yjs.dev/). The API runs a Yjs WebSocket server alongside the Socket.io server on the same HTTP port. When a participant joins a session, the browser syncs the Yjs document over WebSocket — changes merge automatically via CRDT conflict resolution, so concurrent edits never conflict.
 
 ### Code execution flow
 
-1. A participant clicks **Run** in the editor.
-2. The browser emits a `code:run` Socket.io event to the API.
-3. The API publishes the job to a RabbitMQ queue (`execution_queue`).
-4. The execution worker consumes the job, sends the code to Judge0, and waits for the result.
-5. The result (stdout, stderr, status, timing) is persisted as a `SessionEvent` and broadcast to all participants in the session room via `code:run:result`.
+```mermaid
+sequenceDiagram
+    participant U as Participant
+    participant W as Web (Next.js)
+    participant A as API (Socket.io)
+    participant Q as RabbitMQ
+    participant J as Judge0
+
+    U->>W: Click "Run"
+    W->>A: code:run event
+    A->>Q: publish job to execution_queue
+    Q->>A: worker consumes job
+    A->>J: submit code for execution
+    J-->>A: stdout / stderr / status / timing
+    A-->>W: code:run:result (broadcast to session room)
+```
 
 ### Guest access
 
 Interviewers can share a relay-token URL. The token is a short-lived JWT (signed with `JWT_SECRET`) that lets a candidate join as a guest without an Auth0 account. The API validates the token on Socket.io connection, and the web app uses it for API calls.
 
-## Database Schema
+<div align="right"><a href="#-relaycode">↑ back to top</a></div>
 
-```
-User ──< Account        (OAuth accounts per user)
-User ──< Session        (sessions created by a user)
-Session ──< SessionEvent (audit log: code runs, comments, status changes)
-Session >── Problem     (optional problem attached to a session)
+## 🗄️ Database schema
+
+```mermaid
+erDiagram
+    USER ||--o{ ACCOUNT : has
+    USER ||--o{ SESSION : creates
+    SESSION ||--o{ SESSION_EVENT : logs
+    PROBLEM ||--o{ SESSION : "attached to"
 ```
 
 Key enums: `Role` (INTERVIEWER / CANDIDATE), `SessionStatus` (WAITING / ACTIVE / ENDED), `Difficulty` (EASY / MEDIUM / HARD), `EventType` (KEYSTROKE / CODE_RUN / STATUS_CHANGE / COMMENT / CURSOR / LANGUAGE_CHANGE).
 
-## Useful Commands
+## 🛠️ Useful commands
 
 ```bash
 # Start all services
@@ -226,8 +294,18 @@ npm run db:migrate --workspace=apps/api
 npm run db:studio --workspace=apps/api
 
 # RabbitMQ management UI
-open http://localhost:15672   # user: relay / pass: relay
+open http://localhost:15672 # user: relay / pass: relay
 
 # Build for production
 npm run build
 ```
+
+<div align="center">
+
+<br>
+
+**Built for engineers who'd rather demonstrate their code than describe it.**
+
+<a href="#-relaycode">↑ back to top</a>
+
+</div>
