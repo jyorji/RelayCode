@@ -130,6 +130,26 @@ export function registerSessionRoom(io: Server) {
       },
     );
 
+    socket.on("keystroke", async ({ sessionId, code, language }: { sessionId: string; code: string; language: string }) => {
+      if (isGuest) return;
+      const session = await prisma.session.findUnique({ where: { id: sessionId }, select: { startedAt: true, status: true } });
+      if (!session?.startedAt || session.status !== "ACTIVE") return;
+      const offsetMs = Date.now() - session.startedAt.getTime();
+      await prisma.sessionEvent.create({
+        data: { sessionId, type: "KEYSTROKE", payload: { code, language }, offsetMs },
+      });
+    });
+
+    socket.on("focus:change", async ({ sessionId, away, reason }: { sessionId: string; away: boolean; reason: "tab" | "window" }) => {
+      if (!isGuest) return;
+      const session = await prisma.session.findUnique({ where: { id: sessionId }, select: { startedAt: true, status: true } });
+      if (!session?.startedAt || session.status !== "ACTIVE") return;
+      const offsetMs = Date.now() - session.startedAt.getTime();
+      await prisma.sessionEvent.create({
+        data: { sessionId, type: "FOCUS_CHANGE", payload: { away, reason }, offsetMs },
+      });
+    });
+
     socket.on(
       "comment:add",
       async ({ sessionId, text }: { sessionId: string; text: string }) => {

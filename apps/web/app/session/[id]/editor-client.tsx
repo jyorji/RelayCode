@@ -23,6 +23,9 @@ export function EditorClient(props: {
   sessionId: string;
   initialCode: string;
   sessionLanguage: string;
+  initialStatus?: string;
+  initialStartedAt?: string | null;
+  duration?: number | null;
   allowAutocomplete: boolean;
   allowLanguageChange: boolean;
   isGuest: boolean;

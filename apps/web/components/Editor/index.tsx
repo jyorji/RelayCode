@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import MonacoEditor, { type OnMount } from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
 import * as Y from "yjs";
@@ -10,8 +11,9 @@ import { io, type Socket } from "socket.io-client";
 import { Avatar, AvatarGroup, Badge, Button, Icon, Input, Label, Select } from "forge-ui";
 import { ProblemRenderer } from "./ProblemRenderer";
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? "http://localhost:4000";
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL;
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
+if (!WS_URL || !API_URL) throw new Error("NEXT_PUBLIC_WS_URL and NEXT_PUBLIC_API_URL must be set at build time");
 const SAVE_DEBOUNCE_MS = 2000;
 
 const CURSOR_COLORS = [
@@ -90,19 +92,12 @@ interface CustomTestCase {
 }
 
 function extractParamNames(code: string, language: string): string[] {
-  let match: RegExpMatchArray | null = null;
-
-  if (language === "python" || language === "ruby") {
-    match = code.match(/def\s+\w+\s*\(([^)]*)\)/);
-  } else if (language === "go") {
-    match = code.match(/func\s+\w+\s*\(([^)]*)\)/);
-  } else if (language === "javascript" || language === "typescript") {
-    match =
-      code.match(/function\s+\w+\s*\(([^)]*)\)/) ??
-      code.match(/(?:const|let|var)\s+\w+\s*=\s*(?:async\s*)?\(([^)]*)\)/);
-  } else {
-    match = code.match(/\b\w[\w<>[\]]*\s+\w+\s*\(([^)]*)\)/);
-  }
+  const match =
+    language === "python" || language === "ruby" ? code.match(/def\s+\w+\s*\(([^)]*)\)/) :
+    language === "go" ? code.match(/func\s+\w+\s*\(([^)]*)\)/) :
+    language === "javascript" || language === "typescript"
+      ? (code.match(/function\s+\w+\s*\(([^)]*)\)/) ?? code.match(/(?:const|let|var)\s+\w+\s*=\s*(?:async\s*)?\(([^)]*)\)/))
+      : code.match(/\b\w[\w<>[\]]*\s+\w+\s*\(([^)]*)\)/);
 
   const paramStr = match?.[1]?.trim();
   if (!paramStr) return [];
@@ -165,36 +160,16 @@ interface WidgetEntry {
 
 function makeAvatarNode(color: string, initial: string, image: string | null): HTMLDivElement {
   const node = document.createElement("div");
-  Object.assign(node.style, {
-    width: "22px",
-    height: "22px",
-    borderRadius: "50%",
-    border: `2px solid ${color}`,
-    overflow: "hidden",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "11px",
-    fontWeight: "700",
-    fontFamily: "sans-serif",
-    color: "#fff",
-    backgroundColor: color,
-    boxShadow: "0 1px 4px rgba(0,0,0,0.5)",
-    flexShrink: "0",
-    userSelect: "none",
-    zIndex: "100",
-  });
-
+  node.style.cssText = `width:22px;height:22px;border-radius:50%;border:2px solid ${color};overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;font-family:sans-serif;color:#fff;background-color:${color};box-shadow:0 1px 4px rgba(0,0,0,.5);flex-shrink:0;user-select:none;z-index:100`;
   if (image) {
     const img = document.createElement("img");
     img.src = image;
-    Object.assign(img.style, { width: "100%", height: "100%", objectFit: "cover" });
+    img.style.cssText = "width:100%;height:100%;object-fit:cover";
     img.onerror = () => { img.remove(); node.textContent = initial; };
     node.appendChild(img);
   } else {
     node.textContent = initial;
   }
-
   return node;
 }
 
@@ -202,6 +177,9 @@ export function CollaborativeEditor({
   sessionId,
   initialCode = "",
   sessionLanguage = "javascript",
+  initialStatus = "WAITING",
+  initialStartedAt = null,
+  duration = null,
   allowAutocomplete = true,
   allowLanguageChange = true,
   isGuest = false,
@@ -216,6 +194,9 @@ export function CollaborativeEditor({
   sessionId: string;
   initialCode?: string;
   sessionLanguage?: string;
+  initialStatus?: string;
+  initialStartedAt?: string | null;
+  duration?: number | null;
   allowAutocomplete?: boolean;
   allowLanguageChange?: boolean;
   isGuest?: boolean;
@@ -227,6 +208,7 @@ export function CollaborativeEditor({
   testCases?: TestCase[];
   codeByLanguage?: Record<string, string>;
 }) {
+  const router = useRouter();
   const [guestName, setGuestName] = useState("");
   const [guestEmail, setGuestEmail] = useState("");
   const [guestError, setGuestError] = useState("");
@@ -234,6 +216,9 @@ export function CollaborativeEditor({
   const [guestToken, setGuestToken] = useState<string | null>(isGuest ? null : "");
 
   const [language, setLanguage] = useState(sessionLanguage);
+  const [sessionStatus, setSessionStatus] = useState(initialStatus);
+  const [startedAt, setStartedAt] = useState<Date | null>(initialStartedAt ? new Date(initialStartedAt) : null);
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("saved");
   const [presence, setPresence] = useState<PresenceUser[]>([]);
@@ -286,6 +271,9 @@ export function CollaborativeEditor({
 
   const [panelWidth, setPanelWidth] = useState(384);
   const [isPanelDragging, setIsPanelDragging] = useState(false);
+  const autoSubmittedRef = useRef(false);
+  const sessionStatusRef = useRef(sessionStatus);
+  useEffect(() => { sessionStatusRef.current = sessionStatus; }, [sessionStatus]);
   const panelDragRef = useRef({ dragging: false, startX: 0, startWidth: 0 });
 
   // CSS for selection highlight + cursor bar only (no name label — widget handles that)
@@ -385,34 +373,48 @@ export function CollaborativeEditor({
     });
   }
 
-  function saveLanguageCode(language: string, code: string) {
-    if (isGuest) return;
-    fetch(`/api/sessions/${sessionId}/code`, {
+  function formatCountdown(ms: number): string {
+    const s = Math.max(0, Math.ceil(ms / 1000));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  }
+
+  function handleStart() {
+    socketRef.current?.emit("status:change", { sessionId, status: "ACTIVE" });
+  }
+
+  async function handleEnd() {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    // Prefer Monaco's model — it always reflects what the user sees, even if
+    // the Yjs doc and Monaco diverge due to a binding race on mount.
+    const code = editorRef.current?.getValue() ?? docRef.current?.getText("monaco").toString() ?? "";
+    await saveLanguageCode(currentLanguageRef.current, code);
+    socketRef.current?.emit("status:change", { sessionId, status: "ENDED" });
+  }
+
+  function saveLanguageCode(lang: string, code: string): Promise<void> {
+    if (isGuest) return Promise.resolve();
+    return fetch(`/api/sessions/${sessionId}/code`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ language, code }),
-    }).catch(() => {});
+      body: JSON.stringify({ language: lang, code }),
+    }).then(() => {}).catch(() => {});
   }
 
   function scheduleSave(code: string) {
+    if (sessionStatusRef.current !== "ACTIVE") return;
     setSaveStatus("unsaved");
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
       if (cancelledRef.current) return;
       setSaveStatus("saving");
       try {
-        const lang = currentLanguageRef.current;
         await Promise.all([
           fetch(`/api/sessions/${sessionId}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ code }),
           }),
-          isGuest ? Promise.resolve() : fetch(`/api/sessions/${sessionId}/code`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ language: lang, code }),
-          }),
+          saveLanguageCode(currentLanguageRef.current, code),
         ]);
         if (!cancelledRef.current) setSaveStatus("saved");
       } catch {
@@ -427,7 +429,14 @@ export function CollaborativeEditor({
     const ytext = doc.getText("monaco");
     bindingRef.current = new MonacoBinding(ytext, model, new Set([editor]), provider.awareness);
     ytext.observe(() => {
-      if (!cancelledRef.current) scheduleSave(ytext.toString());
+      if (!cancelledRef.current) {
+        // Prefer Monaco's model value; ytext is a fallback for when the editor hasn't mounted yet.
+        const code = editorRef.current?.getValue() ?? ytext.toString();
+        scheduleSave(code);
+        if (!isGuest && sessionStatusRef.current === "ACTIVE") {
+          socketRef.current?.emit("keystroke", { sessionId, code, language: currentLanguageRef.current });
+        }
+      }
     });
 
     const refresh = () => {
@@ -441,6 +450,8 @@ export function CollaborativeEditor({
 
   useEffect(() => {
     if (guestToken === null) return;
+    // ENDED sessions don't need Yjs — code is loaded directly from DB in handleMount
+    if (initialStatus === "ENDED" && !isGuest) return;
 
     let cancelled = false;
     cancelledRef.current = false;
@@ -479,7 +490,16 @@ export function CollaborativeEditor({
         if (cancelled) return;
         const ytext = doc.getText("monaco");
         const seed = initialCode || DEFAULT_STARTERS[sessionLanguage] || "";
-        if (ytext.length === 0 && seed) {
+        if (initialStatus === "ENDED" && seed) {
+          // ENDED sessions: DB is source of truth. Override whatever Yjs/Redis has
+          // (it may have stale or repeated content from a seeding race) with the
+          // saved code so the readOnly view always reflects what was submitted.
+          if (ytext.toString() !== seed) {
+            doc.transact(() => { ytext.delete(0, ytext.length); ytext.insert(0, seed); });
+          }
+        } else if (!isGuest && ytext.length === 0 && seed) {
+          // Only the owner seeds; guests connecting concurrently would cause
+          // Yjs to merge two inserts and the starter code would appear twice.
           doc.transact(() => ytext.insert(0, seed));
         }
       });
@@ -492,7 +512,15 @@ export function CollaborativeEditor({
       socket.on("connect", () => { setStatus("connected"); socket.emit("session:join", { sessionId }); });
       socket.on("disconnect", () => setStatus("disconnected"));
       socket.on("connect_error", () => setStatus("disconnected"));
-      socket.on("session:joined", ({ session }: { session: { language: string } }) => setLanguage(session.language));
+      socket.on("session:joined", ({ session }: { session: { language: string; status: string; startedAt: string | null } }) => {
+        setLanguage(session.language);
+        setSessionStatus(session.status);
+        if (session.startedAt) setStartedAt(new Date(session.startedAt));
+      });
+      socket.on("status:changed", ({ status: s, startedAt: sa }: { status: string; startedAt?: string }) => {
+        setSessionStatus(s);
+        if (sa) setStartedAt(new Date(sa));
+      });
       socket.on("presence:update", ({ users }: { users: PresenceUser[] }) => setPresence(users));
       socket.on("language:changed", ({ language }: { language: string }) => setLanguage(language));
       socket.on("code:run:queued", ({ requestId }: { requestId: string }) => {
@@ -532,6 +560,7 @@ export function CollaborativeEditor({
       }
       widgetsRef.current.clear();
       bindingRef.current?.destroy();
+      bindingRef.current = null;
       providerRef.current?.destroy();
       socketRef.current?.disconnect();
     };
@@ -540,6 +569,10 @@ export function CollaborativeEditor({
   const handleMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
+    if (initialStatus === "ENDED" && !isGuest) {
+      editor.setValue(initialCode);
+      return;
+    }
     const doc = docRef.current;
     const provider = providerRef.current;
     if (doc && provider) setupBinding(editor, doc, provider);
@@ -589,6 +622,31 @@ export function CollaborativeEditor({
   }, [language]);
 
   useEffect(() => {
+    if (!isGuest || sessionStatus !== "ACTIVE") return;
+    function onVisibility() {
+      socketRef.current?.emit("focus:change", { sessionId, away: document.visibilityState === "hidden", reason: "tab" });
+    }
+    function onBlur() {
+      if (document.visibilityState === "visible") {
+        socketRef.current?.emit("focus:change", { sessionId, away: true, reason: "window" });
+      }
+    }
+    function onFocus() {
+      if (document.visibilityState === "visible") {
+        socketRef.current?.emit("focus:change", { sessionId, away: false, reason: "window" });
+      }
+    }
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("blur", onBlur);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [isGuest, sessionStatus, sessionId]);
+
+  useEffect(() => {
     function onMouseMove(e: MouseEvent) {
       if (!panelDragRef.current.dragging) return;
       const next = Math.max(240, Math.min(700, panelDragRef.current.startWidth + e.clientX - panelDragRef.current.startX));
@@ -610,6 +668,29 @@ export function CollaborativeEditor({
       document.body.style.userSelect = "";
     };
   }, []);
+
+  useEffect(() => {
+    if (!duration || sessionStatus !== "ACTIVE" || !startedAt) {
+      setTimeLeft(null);
+      return;
+    }
+    const limitMs = duration * 60 * 1000;
+    function tick() {
+      const left = limitMs - (Date.now() - startedAt!.getTime());
+      if (left <= 0) {
+        setTimeLeft(0);
+        if (!autoSubmittedRef.current) {
+          autoSubmittedRef.current = true;
+          void handleEnd();
+        }
+      } else {
+        setTimeLeft(left);
+      }
+    }
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [sessionStatus, startedAt, duration]);
 
   function startPanelDrag(e: React.MouseEvent) {
     e.preventDefault();
@@ -704,19 +785,18 @@ export function CollaborativeEditor({
 
   return (
     <div className="flex h-full">
-      {problem && (
+      {problem && sessionStatus !== "WAITING" && (
         <>
           <div
             className="flex flex-shrink-0 flex-col overflow-y-auto bg-background"
             style={{ width: panelWidth }}
           >
-            <div className="border-b border-border px-4 pb-3 pt-4">
-              <h1 className="text-base font-semibold leading-snug text-foreground">{problem.title}</h1>
-              <div className="mt-2">
-                <Badge variant={DIFFICULTY_VARIANT[problem.difficulty]}>
-                  {problem.difficulty.charAt(0) + problem.difficulty.slice(1).toLowerCase()}
-                </Badge>
-              </div>
+            <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+              <Button size="sm" variant="ghost" leftIcon="chevron_backward" onClick={() => router.push("/")} />
+              <h1 className="flex-1 text-base font-semibold leading-snug text-foreground">{problem.title}</h1>
+              <Badge variant={DIFFICULTY_VARIANT[problem.difficulty]}>
+                {problem.difficulty.charAt(0) + problem.difficulty.slice(1).toLowerCase()}
+              </Badge>
             </div>
             <div className="flex-1 overflow-y-auto px-4 py-4">
               <ProblemRenderer description={problem.description} />
@@ -730,8 +810,25 @@ export function CollaborativeEditor({
       )}
       <div className="relative flex min-w-0 flex-1 flex-col">
         {isPanelDragging && <div className="absolute inset-0 z-10 cursor-col-resize" />}
+        {sessionStatus === "WAITING" && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+            {isGuest ? (
+              <div className="flex flex-col items-center gap-3 rounded-xl border border-white/10 bg-neutral-900 px-10 py-8 shadow-2xl">
+                <p className="font-medium text-white">Waiting for the challenge to start…</p>
+                <p className="text-sm text-zinc-400">The interviewer will start the session shortly.</p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-4 rounded-xl border border-white/10 bg-neutral-900 px-10 py-8 shadow-2xl">
+                <p className="text-lg font-semibold text-foreground">Ready to begin?</p>
+                <p className="text-sm text-muted-foreground">Click start to reveal the problem and begin the challenge.</p>
+                <Button onClick={handleStart}>Start Challenge</Button>
+              </div>
+            )}
+          </div>
+        )}
       <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2">
         <div className="flex items-center gap-3">
+          {!problem && <Button size="sm" variant="ghost" leftIcon="arrow_back" onClick={() => router.push("/")} />}
           <div className="w-36">
             <Select options={LANGUAGE_OPTIONS} value={language} onChange={handleLanguageChange}
               searchable={false} size="sm" disabled={!allowLanguageChange} />
@@ -754,6 +851,7 @@ export function CollaborativeEditor({
           options={{
             minimap: { enabled: false },
             fontSize: 14,
+            readOnly: sessionStatus !== "ACTIVE",
             quickSuggestions: allowAutocomplete,
             suggestOnTriggerCharacters: allowAutocomplete,
             parameterHints: { enabled: allowAutocomplete },
@@ -976,13 +1074,21 @@ export function CollaborativeEditor({
             <Icon name={consoleOpen ? "expand_more" : "expand_less"} size="sm" />
           </button>
           <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" leftIcon="play_arrow" loading={running} onClick={handleRun}>
-              Run
-            </Button>
-            {customCases.length > 0 && (
-              <Button size="sm" variant="success" loading={running} onClick={handleRun}>
-                Submit
-              </Button>
+            {timeLeft !== null && (
+              <Badge variant={timeLeft < 60000 ? "destructive" : timeLeft < 300000 ? "warning" : "secondary"}>
+                {formatCountdown(timeLeft)}
+              </Badge>
+            )}
+            {sessionStatus === "ENDED" && <Badge variant="secondary">Challenge Ended</Badge>}
+            {sessionStatus === "ACTIVE" && (
+              <>
+                <Button size="sm" variant="outline" leftIcon="play_arrow" loading={running} onClick={handleRun}>
+                  Run
+                </Button>
+                <Button size="sm" variant="success" onClick={() => void handleEnd()}>
+                  Submit
+                </Button>
+              </>
             )}
           </div>
         </div>

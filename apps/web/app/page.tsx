@@ -41,6 +41,8 @@ export default async function Home() {
     language: s.language,
     status: s.status,
     createdAt: s.createdAt.toISOString(),
+    endedAt: s.endedAt?.toISOString() ?? null,
+    duration: s.duration ?? null,
     allowAutocomplete: s.allowAutocomplete,
     allowLanguageChange: s.allowLanguageChange,
     problemId: s.problemId,

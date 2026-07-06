@@ -58,6 +58,7 @@ model Session {
   sessionCodes SessionCode[]
   code                String         @default("") @db.Text
   notes               String?
+  duration            Int?
   allowAutocomplete   Boolean        @default(true)
   allowLanguageChange Boolean        @default(true)
   startedAt           DateTime?
@@ -114,4 +115,5 @@ enum EventType {
   COMMENT
   CURSOR
   LANGUAGE_CHANGE
+  FOCUS_CHANGE
 }
