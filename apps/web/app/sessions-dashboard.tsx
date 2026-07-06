@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Button,
@@ -45,6 +45,8 @@ interface Session {
   language: string;
   status: string;
   createdAt: string;
+  endedAt?: string | null;
+  duration?: number | null;
   allowAutocomplete: boolean;
   allowLanguageChange: boolean;
   problemId?: string | null;
@@ -63,6 +65,7 @@ interface SessionForm {
   allowAutocomplete: boolean;
   allowLanguageChange: boolean;
   problemId: string;
+  duration: string;
 }
 
 const DEFAULT_FORM: SessionForm = {
@@ -71,6 +74,7 @@ const DEFAULT_FORM: SessionForm = {
   allowAutocomplete: true,
   allowLanguageChange: true,
   problemId: "",
+  duration: "",
 };
 
 function SessionFormFields({
@@ -121,6 +125,20 @@ function SessionFormFields({
           searchable={false}
         />
       </div>
+      <div className="flex flex-col gap-1.5">
+        <Label>Time Limit (minutes)</Label>
+        <Input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          placeholder="No limit"
+          value={form.duration}
+          onChange={(e) => {
+            const v = e.target.value.replace(/\D/g, "");
+            onChange({ duration: v });
+          }}
+        />
+      </div>
       <div className="flex flex-col gap-3">
         <Label>Restrictions</Label>
         <Switch
@@ -138,23 +156,163 @@ function SessionFormFields({
   );
 }
 
+function CreateSessionDialog({ problems }: { problems: ProblemOption[] }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState<SessionForm>(DEFAULT_FORM);
+  const [error, setError] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  const handleOpenChange = useCallback((v: boolean) => {
+    if (!v) { setOpen(false); setForm(DEFAULT_FORM); setError(""); }
+    else setOpen(true);
+  }, []);
+
+  async function handleCreate() {
+    if (!form.title.trim()) { setError("Title is required"); return; }
+    setCreating(true);
+    setError("");
+    try {
+      const res = await fetch("/api/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, duration: form.duration ? parseInt(form.duration, 10) : null }),
+      });
+      if (!res.ok) { setError((await res.json()).error ?? "Failed to create session"); return; }
+      const created = await res.json();
+      router.push(`/session/${created.id}`);
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <Button leftIcon="add" onClick={() => setOpen(true)}>New Session</Button>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>New Session</DialogTitle>
+          <DialogDescription>Create a new collaborative coding session.</DialogDescription>
+        </DialogHeader>
+        <SessionFormFields form={form} onChange={(p) => setForm((f) => ({ ...f, ...p }))} titleError={error} problems={problems} />
+        <DialogFooter>
+          <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
+          <Button loading={creating} onClick={handleCreate}>Create</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditSessionDialog({
+  session,
+  problems,
+  onSave,
+  onClose,
+}: {
+  session: Session | null;
+  problems: ProblemOption[];
+  onSave: (form: SessionForm) => void;
+  onClose: () => void;
+}) {
+  const [form, setForm] = useState<SessionForm>(DEFAULT_FORM);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (session) {
+      setForm({ title: session.title, language: session.language, allowAutocomplete: session.allowAutocomplete, allowLanguageChange: session.allowLanguageChange, problemId: session.problemId ?? "", duration: session.duration ? String(session.duration) : "" });
+      setError("");
+    }
+  }, [session?.id]);
+
+  const handleOpenChange = useCallback((v: boolean) => { if (!v) onClose(); }, [onClose]);
+
+  async function handleSave() {
+    if (!form.title.trim()) { setError("Title is required"); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/sessions/${session!.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, duration: form.duration ? parseInt(form.duration, 10) : null }),
+      });
+      if (!res.ok) {
+        let msg = "Failed to save";
+        try { msg = (await res.json()).error ?? msg; } catch { /* non-JSON */ }
+        setError(msg);
+        return;
+      }
+      onSave(form);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={!!session} onOpenChange={handleOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit Session</DialogTitle>
+          <DialogDescription>Update session settings.</DialogDescription>
+        </DialogHeader>
+        <SessionFormFields form={form} onChange={(p) => setForm((f) => ({ ...f, ...p }))} titleError={error} problems={problems} />
+        <DialogFooter>
+          <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
+          <Button loading={saving} onClick={handleSave}>Save</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DeleteSessionDialog({
+  session,
+  onDeleted,
+  onClose,
+}: {
+  session: Session | null;
+  onDeleted: (id: string) => void;
+  onClose: () => void;
+}) {
+  const [deleting, setDeleting] = useState(false);
+
+  const handleOpenChange = useCallback((v: boolean) => { if (!v) onClose(); }, [onClose]);
+
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      await fetch(`/api/sessions/${session!.id}`, { method: "DELETE" });
+      onDeleted(session!.id);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <Dialog open={!!session} onOpenChange={handleOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Delete Session</DialogTitle>
+          <DialogDescription>
+            Delete &ldquo;{session?.title}&rdquo;? This cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
+          <Button variant="destructive" loading={deleting} onClick={handleDelete}>Delete</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function SessionsDashboard({ sessions: initial, problems }: { sessions: Session[]; problems: ProblemOption[] }) {
   const router = useRouter();
   const [sessions, setSessions] = useState(initial);
-
-  const [createOpen, setCreateOpen] = useState(false);
-  const [createForm, setCreateForm] = useState<SessionForm>(DEFAULT_FORM);
-  const [createError, setCreateError] = useState("");
-  const [creating, setCreating] = useState(false);
-
   const [editTarget, setEditTarget] = useState<Session | null>(null);
-  const [editForm, setEditForm] = useState<SessionForm>(DEFAULT_FORM);
-  const [editError, setEditError] = useState("");
-  const [saving, setSaving] = useState(false);
-
   const [deleteTarget, setDeleteTarget] = useState<Session | null>(null);
-  const [deleting, setDeleting] = useState(false);
-
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   function handleCopyLink(id: string) {
@@ -165,91 +323,11 @@ export function SessionsDashboard({ sessions: initial, problems }: { sessions: S
     });
   }
 
-  function openEdit(s: Session) {
-    setEditTarget(s);
-    setEditForm({ title: s.title, language: s.language, allowAutocomplete: s.allowAutocomplete, allowLanguageChange: s.allowLanguageChange, problemId: s.problemId ?? "" });
-    setEditError("");
-  }
-
-  function closeCreate() {
-    setCreateOpen(false);
-    setCreateForm(DEFAULT_FORM);
-    setCreateError("");
-  }
-
-  async function handleCreate() {
-    if (!createForm.title.trim()) { setCreateError("Title is required"); return; }
-    setCreating(true);
-    setCreateError("");
-    try {
-      const res = await fetch("/api/sessions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(createForm),
-      });
-      if (!res.ok) { setCreateError((await res.json()).error ?? "Failed to create session"); return; }
-      const created = await res.json();
-      router.push(`/session/${created.id}`);
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  async function handleSave() {
-    if (!editForm.title.trim()) { setEditError("Title is required"); return; }
-    setSaving(true);
-    setEditError("");
-    try {
-      const res = await fetch(`/api/sessions/${editTarget!.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(editForm),
-      });
-      if (!res.ok) {
-        let msg = "Failed to save";
-        try { msg = (await res.json()).error ?? msg; } catch { /* non-JSON error body */ }
-        setEditError(msg);
-        return;
-      }
-      const updated = await res.json();
-      setSessions((prev) => prev.map((s) => (s.id === updated.id ? { ...s, ...editForm } : s)));
-      setEditTarget(null);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleDelete() {
-    setDeleting(true);
-    try {
-      await fetch(`/api/sessions/${deleteTarget!.id}`, { method: "DELETE" });
-      setSessions((prev) => prev.filter((s) => s.id !== deleteTarget!.id));
-      setDeleteTarget(null);
-    } finally {
-      setDeleting(false);
-    }
-  }
-
   return (
     <main className="flex flex-1 flex-col overflow-y-auto px-6 py-8 max-w-3xl mx-auto w-full">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">Sessions</h1>
-
-        {/* Create dialog */}
-        <Dialog open={createOpen} onOpenChange={(v) => { if (!v) closeCreate(); else setCreateOpen(true); }}>
-          <Button leftIcon="add" onClick={() => setCreateOpen(true)}>New Session</Button>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>New Session</DialogTitle>
-              <DialogDescription>Create a new collaborative coding session.</DialogDescription>
-            </DialogHeader>
-            <SessionFormFields form={createForm} onChange={(p) => setCreateForm((f) => ({ ...f, ...p }))} titleError={createError} problems={problems} />
-            <DialogFooter>
-              <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
-              <Button loading={creating} onClick={handleCreate}>Create</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <CreateSessionDialog problems={problems} />
       </div>
 
       <List
@@ -272,8 +350,11 @@ export function SessionsDashboard({ sessions: initial, problems }: { sessions: S
                 <Badge variant={STATUS_VARIANT[s.status] ?? "secondary"}>
                   {s.status.charAt(0) + s.status.slice(1).toLowerCase()}
                 </Badge>
+                {s.status === "ENDED" && (
+                  <IconButton icon="play_circle" size="sm" variant="ghost" onClick={() => router.push(`/replay/${s.id}`)} />
+                )}
                 <IconButton icon={copiedId === s.id ? "check" : "link"} size="sm" variant="ghost" onClick={() => handleCopyLink(s.id)} />
-                <IconButton icon="edit" size="sm" variant="ghost" onClick={() => openEdit(s)} />
+                <IconButton icon="edit" size="sm" variant="ghost" onClick={() => setEditTarget(s)} />
                 <IconButton icon="delete" size="sm" variant="destructive" onClick={() => setDeleteTarget(s)} />
               </div>
             }
@@ -282,36 +363,21 @@ export function SessionsDashboard({ sessions: initial, problems }: { sessions: S
         ))}
       </List>
 
-      {/* Edit dialog */}
-      <Dialog open={!!editTarget} onOpenChange={(v) => { if (!v) setEditTarget(null); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Session</DialogTitle>
-            <DialogDescription>Update session settings.</DialogDescription>
-          </DialogHeader>
-          <SessionFormFields form={editForm} onChange={(p) => setEditForm((f) => ({ ...f, ...p }))} titleError={editError} problems={problems} />
-          <DialogFooter>
-            <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
-            <Button loading={saving} onClick={handleSave}>Save</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <EditSessionDialog
+        session={editTarget}
+        problems={problems}
+        onSave={(form) => {
+          setSessions((prev) => prev.map((s) => s.id === editTarget!.id ? { ...s, ...form, duration: form.duration ? parseInt(form.duration, 10) : null } : s));
+          setEditTarget(null);
+        }}
+        onClose={() => setEditTarget(null)}
+      />
 
-      {/* Delete confirmation dialog */}
-      <Dialog open={!!deleteTarget} onOpenChange={(v) => { if (!v) setDeleteTarget(null); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Session</DialogTitle>
-            <DialogDescription>
-              Delete &ldquo;{deleteTarget?.title}&rdquo;? This cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
-            <Button variant="destructive" loading={deleting} onClick={handleDelete}>Delete</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeleteSessionDialog
+        session={deleteTarget}
+        onDeleted={(id) => { setSessions((prev) => prev.filter((s) => s.id !== id)); setDeleteTarget(null); }}
+        onClose={() => setDeleteTarget(null)}
+      />
     </main>
   );
 }

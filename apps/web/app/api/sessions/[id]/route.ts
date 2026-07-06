@@ -31,6 +31,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (typeof body.allowLanguageChange === "boolean") data.allowLanguageChange = body.allowLanguageChange;
   if (typeof body.code === "string") data.code = body.code;
   if (typeof body.problemId === "string") data.problemId = body.problemId || null;
+  if ("duration" in body) data.duration = typeof body.duration === "number" && body.duration > 0 ? body.duration : null;
 
   const updated = await prisma.session.update({ where: { id }, data });
   return NextResponse.json(updated);

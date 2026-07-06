@@ -35,7 +35,7 @@ export function Navbar({
         {user && (
           <nav className="flex items-center gap-2">
             {NAV_ITEMS.map(({ label, href }) => {
-              const isActive = href === "/" ? pathname === "/" : pathname.startsWith(href);
+              const isActive = href === "/" ? (pathname === "/" || pathname.startsWith("/session")) : pathname.startsWith(href);
               return (
                 <Button
                   key={href}

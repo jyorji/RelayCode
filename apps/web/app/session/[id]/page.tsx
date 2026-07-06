@@ -19,6 +19,9 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
         id: true,
         code: true,
         language: true,
+        status: true,
+        startedAt: true,
+        duration: true,
         allowAutocomplete: true,
         allowLanguageChange: true,
         problem: { select: { id: true, title: true, description: true, difficulty: true, starterCode: true, testCases: true } },
@@ -52,6 +55,9 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
           sessionId={id}
           initialCode={initialCode}
           sessionLanguage={dbSession.language}
+          initialStatus={dbSession.status}
+          initialStartedAt={dbSession.startedAt?.toISOString() ?? null}
+          duration={dbSession.duration}
           allowAutocomplete={dbSession.allowAutocomplete}
           allowLanguageChange={dbSession.allowLanguageChange}
           isGuest={isGuest}
